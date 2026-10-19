@@ -35,7 +35,7 @@ function renderGallery(){
   g.className='gallery';
   state.photos.forEach((p,i)=>{
     const w=document.createElement('div');w.className='ph';
-    const im=document.createElement('img');im.src=p.url;im.loading='lazy';im.alt='Yaad '+(i+1);
+    const im=document.createElement('img');im.src=p.url;im.loading='lazy';im.decoding='async';im.alt='Yaad '+(i+1);
     im.onclick=()=>{$('#lb img').src=p.url;$('#lb').style.display='flex'};
     w.appendChild(im);
     if(claudeAssets){
@@ -59,7 +59,7 @@ function renderAdmin(){
     const files=[...inp.files];let done=0;
     for(const f of files){
       s.textContent='Upload ho raha hai… '+(done+1)+'/'+files.length;
-      try{const r=await claudeAssets.upload(f);state.photos.push({id:r.id,url:r.url});renderGallery()}
+      try{const r=await claudeAssets.upload(await shrink(f));state.photos.push({id:r.id,url:r.url});renderGallery()}
       catch(e){s.textContent='Ek photo upload nahi hui ('+(e&&e.message||'error')+')'}
       done++;
     }
@@ -74,35 +74,37 @@ function queueSave(){
     try{
       const clone=document.documentElement.cloneNode(true);
       clone.querySelector('#data').textContent=JSON.stringify(state);
-      ['#admin','#gallery','#quotes','#fq'].forEach(k=>{const e=clone.querySelector(k);if(e)e.textContent=''});
+      ['#admin','#gallery','#quotes','#fq','#balloons','#candles'].forEach(k=>{const e=clone.querySelector(k);if(e)e.textContent=''});
       const lb=clone.querySelector('#lb');if(lb)lb.style.display='none';
       await claudeArtifact.publish('<!doctype html>\n'+clone.outerHTML);
     }catch(e){const s2=$('#status');if(s2)s2.textContent='Save nahi hua, dobara try karo.'}
   },1200);
 }
 const cv=$('#fx'),cx=cv.getContext('2d');let parts=[],raf=null,audio=null;
-function fit(){cv.width=innerWidth*devicePixelRatio;cv.height=innerHeight*devicePixelRatio}
+const DPR=Math.min(devicePixelRatio||1,1.5),MAXP=140;
+function fit(){cv.width=innerWidth*DPR;cv.height=innerHeight*DPR}
 fit();addEventListener('resize',fit);
-const FL=['🌸','🌺','🌼','🌷','🌹','💐'],CO=['#ff4d8d','#ffb24d','#4dd2ff','#7cf29a','#c58bff','#ffe14d'];
+const FL=['🌸','🌺','🌼','🌷','🌹','💐'],CO=['#ff5fa2','#8b5cf6','#22d3ee','#fbbf24','#34d399','#fb7185'];
+const SP={};
+function sprite(e){if(SP[e])return SP[e];const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d');g.font='48px serif';g.textAlign='center';g.textBaseline='middle';g.fillText(e,32,34);return SP[e]=c}
+function add(o){if(parts.length<MAXP)parts.push(o)}
 function spawn(n){
-  const d=devicePixelRatio;
   for(let i=0;i<n;i++){
     const f=Math.random()<.55;
-    parts.push({f,x:Math.random()*cv.width,y:-30*d-Math.random()*cv.height*.4,vy:(1.5+Math.random()*2.5)*d,vx:(Math.random()-.5)*1.5*d,s:(f?18+Math.random()*18:6+Math.random()*6)*d,r:Math.random()*6,vr:(Math.random()-.5)*.15,ph:Math.random()*6,c:f?FL[i%FL.length]:CO[i%CO.length]});
+    add({f,x:Math.random()*cv.width,y:-30*DPR-Math.random()*cv.height*.3,vx:(Math.random()-.5)*DPR,vy:(1.5+Math.random()*2)*DPR,g:0,s:(f?20+Math.random()*14:6+Math.random()*5)*DPR,r:Math.random()*6,vr:(Math.random()-.5)*.12,ph:Math.random()*6,c:f?FL[i%FL.length]:CO[i%CO.length]});
   }
   if(!raf)loop();
 }
 function loop(){
-  const d=devicePixelRatio;
   cx.clearRect(0,0,cv.width,cv.height);
-  parts.forEach(p=>{
-    p.y+=p.vy;p.ph+=.05;p.x+=p.vx+Math.sin(p.ph)*d;p.r+=p.vr;
+  for(const p of parts){
+    p.vy+=p.g;p.y+=p.vy;p.ph+=.05;p.x+=p.vx+Math.sin(p.ph)*DPR*.6;p.r+=p.vr;
     cx.save();cx.translate(p.x,p.y);cx.rotate(p.r);
-    if(p.f){cx.font=p.s+'px serif';cx.textAlign='center';cx.textBaseline='middle';cx.fillText(p.c,0,0)}
+    if(p.f)cx.drawImage(sprite(p.c),-p.s/2,-p.s/2,p.s,p.s);
     else{cx.fillStyle=p.c;cx.fillRect(-p.s/2,-p.s/4,p.s,p.s/2)}
     cx.restore();
-  });
-  parts=parts.filter(p=>p.y<cv.height+60*d);
+  }
+  parts=parts.filter(p=>p.y<cv.height+60*DPR);
   raf=parts.length?requestAnimationFrame(loop):null;
   if(!raf)cx.clearRect(0,0,cv.width,cv.height);
 }
@@ -125,8 +127,8 @@ function playTune(){
   }catch(e){}
 }
 function party(){
-  spawn(120);let k=0;
-  const t=setInterval(()=>{spawn(25);if(++k>14)clearInterval(t)},500);
+  spawn(70);let k=0;
+  const t=setInterval(()=>{spawn(12);if(++k>14)clearInterval(t)},500);
   playTune();
 }
 $('#party').onclick=party;
@@ -141,3 +143,70 @@ renderTitle();newQuote();renderQuotes();renderGallery();
     renderAdmin();renderGallery();
   }catch(e){}
 })();
+
+/* ---- extra interactivity ---- */
+let pc=null;
+function blip(f,d=.12,type='sine'){try{pc=pc||new (window.AudioContext||window.webkitAudioContext)();const t=pc.currentTime,o=pc.createOscillator(),g=pc.createGain();o.type=type;o.frequency.setValueAtTime(f,t);o.frequency.exponentialRampToValueAtTime(f/2,t+d);g.gain.setValueAtTime(.2,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(pc.destination);o.start(t);o.stop(t+d)}catch(e){}}
+function spawnAt(n,x,y,set){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2,v=(2+Math.random()*4)*DPR;
+    let f=false,c=CO[i%CO.length],s=(7+Math.random()*5)*DPR;
+    if(set){f=true;c=set[i%set.length];s=(18+Math.random()*10)*DPR}
+    else if(Math.random()<.4){f=true;c=FL[i%FL.length];s=(18+Math.random()*10)*DPR}
+    add({f,c,s,x:x*DPR,y:y*DPR,vx:Math.cos(a)*v,vy:Math.sin(a)*v-3*DPR,g:.12*DPR,r:0,vr:(Math.random()-.5)*.3,ph:0});
+  }
+  if(!raf)loop();
+}
+addEventListener('pointerdown',e=>{if(e.target.closest('#admin,#lb,.bl,button'))return;spawnAt(12,e.clientX,e.clientY)});
+$('#quotes').addEventListener('click',e=>{if(!e.target.closest('div div,#quotes>div'))return;spawnAt(8,e.clientX,e.clientY,['❤️','💖','💕']);blip(660,.1,'triangle')});
+
+const BC=['#ff5fa2','#8b5cf6','#22d3ee','#fbbf24','#34d399','#fb7185'];
+function balloon(){
+  const b=$('#balloons');if(b.children.length>4||document.hidden)return;
+  const e=document.createElement('div');e.className='bl';
+  const c=BC[Math.floor(Math.random()*BC.length)];
+  e.style.background='radial-gradient(circle at 30% 30%,#fff8,'+c+' 55%)';
+  e.style.left=Math.random()*92+'%';
+  e.style.setProperty('--dx',(Math.random()*80-40)+'px');
+  e.style.animationDuration=(9+Math.random()*7)+'s';
+  e.onanimationend=()=>e.remove();
+  e.onpointerdown=ev=>{ev.stopPropagation();const r=e.getBoundingClientRect();spawnAt(16,r.left+r.width/2,r.top+r.height/2);blip(500+Math.random()*400,.1,'triangle');e.remove()};
+  b.appendChild(e);
+}
+setInterval(balloon,2600);balloon();
+
+const cd=$('#candles');
+for(let i=0;i<5;i++){const c=document.createElement('div');c.className='cd';c.innerHTML='<i class="fl"></i>';c.onclick=()=>out(c);cd.appendChild(c)}
+function out(c){
+  if(c.classList.contains('off'))return;
+  c.classList.add('off');blip(300,.15);
+  const left=cd.querySelectorAll('.cd:not(.off)').length;
+  $('#wish').textContent=left?('Aur '+left+' candle bachi hain…'):'Wish maang li na? Ab poori hogi! ✨🎉';
+  if(!left){party();$('#blow').textContent='🔥 Phir se jalao'}
+}
+$('#blow').onclick=()=>{
+  const on=[...cd.children].filter(c=>!c.classList.contains('off'));
+  if(on.length){on.forEach((c,i)=>setTimeout(()=>out(c),i*180))}
+  else{[...cd.children].forEach(c=>c.classList.remove('off'));$('#wish').textContent='Phoonk maaro ya candle pe tap karo 👆';$('#blow').textContent='💨 Phoonk maaro'}
+};
+
+const io='IntersectionObserver' in window?new IntersectionObserver(es=>es.forEach(en=>{if(en.isIntersecting){en.target.classList.add('in');io.unobserve(en.target)}}),{threshold:.1}):null;
+function reveal(){document.querySelectorAll('section').forEach(el=>{if(el.classList.contains('in'))return;el.classList.add('reveal');io?io.observe(el):el.classList.add('in')})}
+reveal();
+new MutationObserver(reveal).observe($('#gallery'),{childList:true});
+
+function shrink(file){
+  return new Promise(res=>{
+    if(!file.type.startsWith('image/')||file.type==='image/gif'||file.type==='image/svg+xml')return res(file);
+    const img=new Image(),u=URL.createObjectURL(file);
+    img.onload=()=>{
+      const k=Math.min(1,1400/Math.max(img.width,img.height));
+      if(k===1&&file.size<400000){URL.revokeObjectURL(u);return res(file)}
+      const c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);
+      c.toBlob(b=>res(b||file),'image/jpeg',.82);
+    };
+    img.onerror=()=>{URL.revokeObjectURL(u);res(file)};
+    img.src=u;
+  });
+}
